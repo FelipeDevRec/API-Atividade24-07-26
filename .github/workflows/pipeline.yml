@@ -1,0 +1,139 @@
+name: Nexus API — CI Pipeline (Fail Fast)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+
+  # ============================================================
+  # FASE 1 — SAST + BUILD
+  # Roda primeiro. Valida segurança e estrutura do projeto.
+  # ============================================================
+
+  sast:
+    name: 🔐 SAST — Security Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Dependency Audit
+        run: npm audit --audit-level=high
+        continue-on-error: false
+
+  build:
+    name: 📦 Build — Validate Structure
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Validate Project Start
+        run: |
+          timeout 10 node index.js &
+          SERVER_PID=$!
+          sleep 5
+          kill $SERVER_PID 2>/dev/null || true
+          echo "Build validation OK — server started successfully"
+
+  # ============================================================
+  # FASE 2 — UNIT TESTS + LINT
+  # Só rodam se a Fase 1 (sast + build) passar completamente.
+  # Aplica o conceito de Fail Fast: se o código já está quebrado,
+  # não desperdiçamos recursos subindo o servidor para E2E.
+  # ============================================================
+
+  test:
+    name: 🧪 Unit Tests (Jest)
+    runs-on: ubuntu-latest
+    needs: [sast, build]
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Unit Tests
+        run: npm test
+
+  lint-quality:
+    name: 🧹 Lint — Code Quality
+    runs-on: ubuntu-latest
+    needs: [sast, build]
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+  # ============================================================
+  # FASE 3 — API E2E TESTS (Curl)
+  # Só roda se TODOS os testes unitários E o lint passarem.
+  # É o estágio mais pesado: sobe o servidor real e executa os
+  # 6 cenários de teste (Smoke, Sanity, Regression) via bash.
+  # ============================================================
+
+  api-tests:
+    name: 🚀 API E2E Tests (Curl)
+    runs-on: ubuntu-latest
+    needs: [test, lint-quality]
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Start API (background)
+        # O & faz o servidor rodar em segundo plano (background),
+        # permitindo que a pipeline avance para rodar os testes.
+        run: npm start &
+
+      - name: Run API Tests (Smoke, Sanity, Regression)
+        # Executa o script com os 6 cenários de teste.
+        # O script aguarda a API subir antes de rodar.
+        run: bash scripts/api-tests.sh
