@@ -1,4 +1,9 @@
-const users = [];
+const users = [  {
+    id: 1,
+    name: "Admin Nexus",
+    email: "admin@nexus.com",
+    password: "admin123"
+  }];
 
 const products = [
   { id: 1, name: "Nexus Quantum Watch", price: 1299, category: "Wearables", glow: "var(--primary)" },
